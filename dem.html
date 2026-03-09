@@ -98,14 +98,13 @@ Press record to start
 </div>
 <script>
 
-let video=document.getElementById("video")
-let instructions=document.getElementById("instructions")
+const video=document.getElementById("video")
+const instructions=document.getElementById("instructions")
 
-let recordBtn=document.getElementById("record")
-let pauseBtn=document.getElementById("pause")
-let flipBtn=document.getElementById("flip")
+const recordBtn=document.getElementById("record")
+const pauseBtn=document.getElementById("pause")
+const flipBtn=document.getElementById("flip")
 
-let usingFront=false
 let stream
 let recorder
 let chunks=[]
@@ -113,16 +112,19 @@ let chunks=[]
 let recording=false
 let paused=false
 
-let phase="idle"
+let state="idle"
 
-let rackStart=0
-let panStart=0
+let rackTimer=null
+let rotateTimer=null
+let scanTimer=null
 
-function isVertical(){
+let usingFront=false
+
+function isPortrait(){
 return screen.orientation.type.includes("portrait")
 }
 
-function isHorizontal(){
+function isLandscape(){
 return screen.orientation.type.includes("landscape")
 }
 
@@ -141,14 +143,11 @@ video.srcObject=stream
 
 recorder=new MediaRecorder(stream)
 
-recorder.ondataavailable=e=>{
-chunks.push(e.data)
-}
+recorder.ondataavailable=e=>chunks.push(e.data)
 
 recorder.onstop=()=>{
 
 let blob=new Blob(chunks,{type:"video/webm"})
-
 let url=URL.createObjectURL(blob)
 
 let a=document.createElement("a")
@@ -162,11 +161,9 @@ a.click()
 
 startCamera()
 
-flipBtn.onclick=async ()=>{
-
+flipBtn.onclick=async()=>{
 usingFront=!usingFront
 await startCamera()
-
 }
 
 recordBtn.onclick=()=>{
@@ -177,22 +174,22 @@ chunks=[]
 recorder.start()
 
 recording=true
-phase="rack"
+state="rack"
 
-rackStart=Date.now()
+rackTimer=null
 
-recordBtn.style.background="gray"
+recordBtn.innerText="■"
 
-instructions.innerText="Hold rack vertically for 2 seconds"
+instructions.innerText="Hold rack vertically"
 
 }else{
 
 recorder.stop()
 
 recording=false
-phase="idle"
+state="idle"
 
-recordBtn.style.background="red"
+recordBtn.innerText="●"
 
 instructions.innerText="Recording stopped"
 
@@ -208,17 +205,23 @@ paused=!paused
 
 if(paused){
 
-instructions.innerText="Move to NEXT UNIT then press Resume"
+state="paused"
+instructions.innerText="Move to next unit then press Resume"
 
 }else{
 
-instructions.innerText="Move camera LEFT → RIGHT"
-
-phase="pan"
-
-panStart=Date.now()
+startScan()
 
 }
+
+}
+
+function startScan(){
+
+state="scan"
+scanTimer=Date.now()
+
+instructions.innerText="Move camera LEFT → RIGHT"
 
 }
 
@@ -229,53 +232,64 @@ requestAnimationFrame(update)
 return
 }
 
-let now=Date.now()
+if(state==="rack"){
 
-if(phase==="rack"){
+if(isPortrait()){
 
-if(isVertical()){
+if(!rackTimer){
+rackTimer=Date.now()
+}
 
-let t=(now-rackStart)/1000
+if(Date.now()-rackTimer>4000){
 
-instructions.innerText="Vertical OK… "+(2-Math.floor(t))+"s"
-
-if(t>2){
-
-phase="rotate"
-
+state="rotate"
 instructions.innerText="Rotate phone horizontally"
 
 }
 
 }else{
 
+rackTimer=null
 instructions.innerText="Hold phone vertically"
 
 }
 
 }
 
-else if(phase==="rotate"){
+else if(state==="rotate"){
 
-if(isHorizontal()){
+if(isLandscape()){
 
-phase="pan"
+if(!rotateTimer){
+rotateTimer=Date.now()
+}
 
-panStart=Date.now()
+if(Date.now()-rotateTimer>2000){
 
-instructions.innerText="Move camera LEFT → RIGHT for unit"
+startScan()
+
+}
+
+}else{
+
+rotateTimer=null
 
 }
 
 }
 
-else if(phase==="pan"){
+else if(state==="scan"){
 
-let t=(now-panStart)/1000
+let t=Date.now()-scanTimer
 
-if(t>3){
+if(t<3000){
 
-instructions.innerText="3 seconds done. Press PAUSE"
+instructions.innerText="Scanning unit"
+
+}else{
+
+state="waitpause"
+instructions.innerText="Pause recording and move to next unit"
 
 }
 
@@ -292,4 +306,5 @@ update()
 </body>
 
 </html>
+
 
