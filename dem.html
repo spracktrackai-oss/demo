@@ -96,21 +96,14 @@ Press record to start
 <button id="pause">⏸</button>
 
 </div>
-
 <script>
 
 let video=document.getElementById("video")
-let canvas=document.getElementById("canvas")
-let ctx=canvas.getContext("2d")
-
 let instructions=document.getElementById("instructions")
 
 let recordBtn=document.getElementById("record")
 let pauseBtn=document.getElementById("pause")
 let flipBtn=document.getElementById("flip")
-
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
 
 let usingFront=false
 let stream
@@ -124,6 +117,14 @@ let phase="idle"
 
 let rackStart=0
 let panStart=0
+
+function isVertical(){
+return screen.orientation.type.includes("portrait")
+}
+
+function isHorizontal(){
+return screen.orientation.type.includes("landscape")
+}
 
 async function startCamera(){
 
@@ -146,7 +147,7 @@ chunks.push(e.data)
 
 recorder.onstop=()=>{
 
-let blob=new Blob(chunks,{type:'video/webm'})
+let blob=new Blob(chunks,{type:"video/webm"})
 
 let url=URL.createObjectURL(blob)
 
@@ -173,11 +174,9 @@ recordBtn.onclick=()=>{
 if(!recording){
 
 chunks=[]
-
 recorder.start()
 
 recording=true
-
 phase="rack"
 
 rackStart=Date.now()
@@ -191,7 +190,6 @@ instructions.innerText="Hold rack vertically for 2 seconds"
 recorder.stop()
 
 recording=false
-
 phase="idle"
 
 recordBtn.style.background="red"
@@ -210,11 +208,13 @@ paused=!paused
 
 if(paused){
 
-instructions.innerText="Move to next unit then press resume"
+instructions.innerText="Move to NEXT UNIT then press Resume"
 
 }else{
 
 instructions.innerText="Move camera LEFT → RIGHT"
+
+phase="pan"
 
 panStart=Date.now()
 
@@ -222,46 +222,18 @@ panStart=Date.now()
 
 }
 
-function drawGuide(){
-
-ctx.clearRect(0,0,canvas.width,canvas.height)
-
-ctx.strokeStyle="cyan"
-ctx.lineWidth=3
-
-if(phase==="rack"){
-
-ctx.strokeRect(40,100,canvas.width-80,canvas.height-200)
-
-}
-
-if(phase==="pan"){
-
-ctx.font="50px Arial"
-ctx.fillStyle="lime"
-
-ctx.fillText("LEFT → RIGHT",canvas.width/2-150,100)
-
-}
-
-}
-
 function update(){
 
-drawGuide()
-
 if(!recording){
-
 requestAnimationFrame(update)
 return
-
 }
 
 let now=Date.now()
 
 if(phase==="rack"){
 
-if(window.innerHeight>window.innerWidth){
+if(isVertical()){
 
 let t=(now-rackStart)/1000
 
@@ -285,13 +257,13 @@ instructions.innerText="Hold phone vertically"
 
 else if(phase==="rotate"){
 
-if(window.innerWidth>window.innerHeight){
+if(isHorizontal()){
 
 phase="pan"
 
 panStart=Date.now()
 
-instructions.innerText="Move camera LEFT → RIGHT"
+instructions.innerText="Move camera LEFT → RIGHT for unit"
 
 }
 
@@ -316,7 +288,8 @@ requestAnimationFrame(update)
 update()
 
 </script>
-
+  
 </body>
 
 </html>
+
