@@ -3,22 +3,89 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Video with Guidance</title>
+<title>RackTrack Live Guidance</title>
 <style>
-  body { display: flex; flex-direction: column; align-items: center; font-family: sans-serif; }
-  video { border: 2px solid #333; width: 640px; height: 480px; }
-  canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
-  #container { position: relative; width: 640px; height: 480px; }
-  #controls { margin-top: 10px; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    width: 100%;
+    padding: 10px;
+    text-align: center;
+    font-size: 28px;
+    font-weight: bold;
+    background: #1f2a38;
+    color: #00ffd5;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+  }
+  #container {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    flex: 1;
+    margin-top: 10px;
+  }
+  video {
+    width: 100%;
+    border-radius: 8px;
+    transform: scaleX(-1); /* mirror for front camera */
+  }
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+  }
+  #instructions {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.5);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 18px;
+    text-align: center;
+  }
+  #controls {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+  }
+  button {
+    padding: 10px 20px;
+    font-size: 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: #00ffd5;
+    color: #0f2027;
+    font-weight: bold;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  }
+  button:disabled { background: #555; cursor: not-allowed; }
 </style>
 </head>
 <body>
 
-<h2>Live Camera with Guidance Overlay</h2>
+<header>RackTrack Live Guidance</header>
+
 <div id="container">
     <video id="video" autoplay playsinline></video>
-    <canvas id="overlay" width="640" height="480"></canvas>
+    <canvas id="overlay"></canvas>
+    <div id="instructions">Initializing camera...</div>
 </div>
+
 <div id="controls">
     <button id="startRecord">Start Recording</button>
     <button id="stopRecord" disabled>Stop Recording</button>
@@ -29,45 +96,63 @@
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
+const instructions = document.getElementById('instructions');
+
 let mediaRecorder;
 let recordedChunks = [];
 
-// 1️⃣ Access user camera
-navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-.then(stream => {
-    video.srcObject = stream;
+// ---------------- Camera Access ----------------
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user" }, // front camera
+            audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        video.srcObject = stream;
 
-    // Setup MediaRecorder
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-    };
-    mediaRecorder.onstop = saveVideo;
-})
-.catch(err => alert('Camera access error: ' + err));
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+        mediaRecorder.onstop = saveVideo;
 
-// 2️⃣ Draw guidance overlay
-function drawOverlay() {
+        instructions.textContent = "Ready! Press 'Start Recording' to begin.";
+    } catch(err) {
+        instructions.textContent = "Camera access denied. Please allow camera.";
+        console.error(err);
+    }
+}
+startCamera();
+
+// ---------------- Overlay Guidance ----------------
+let startTime = null;
+function drawOverlay(timestamp) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Example: a center rectangle guide
+    if (!startTime) startTime = timestamp;
+    const elapsed = (timestamp - startTime) / 1000; // seconds
+
+    // Overlay rectangle in the center
     ctx.strokeStyle = 'red';
     ctx.lineWidth = 3;
-    ctx.strokeRect(220, 140, 200, 200);
+    ctx.strokeRect(50, 50, canvas.width-100, canvas.height-100);
 
-    // Example text instructions
-    ctx.font = '20px Arial';
-    ctx.fillStyle = 'yellow';
-    ctx.fillText('Keep object inside the box', 180, 120);
+    // Dynamic instructions
+    if (elapsed < 3) {
+        instructions.textContent = "First 3s: Capture full rack view";
+    } else {
+        instructions.textContent = "Now capture each unit from left → right, pause between units";
+    }
 
     requestAnimationFrame(drawOverlay);
 }
-drawOverlay();
+requestAnimationFrame(drawOverlay);
 
-// 3️⃣ Recording controls
+// ---------------- Recording ----------------
 document.getElementById('startRecord').onclick = () => {
     recordedChunks = [];
     mediaRecorder.start();
+    startTime = null; // reset timer
     document.getElementById('startRecord').disabled = true;
     document.getElementById('stopRecord').disabled = false;
 };
@@ -78,13 +163,13 @@ document.getElementById('stopRecord').onclick = () => {
     document.getElementById('stopRecord').disabled = true;
 };
 
-// 4️⃣ Save video
+// ---------------- Save Video ----------------
 function saveVideo() {
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
     const url = URL.createObjectURL(blob);
     const link = document.getElementById('downloadLink');
     link.href = url;
-    link.download = 'recorded_video.webm';
+    link.download = 'racktrack_recording.webm';
     link.style.display = 'inline';
     link.textContent = 'Download Video';
 }
