@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RackTrack Recorder</title>
+
+<style>
+
+body{
+margin:0;
+background:black;
+font-family:system-ui;
+overflow:hidden;
+color:white;
+}
+
+/* Video preview */
+
+video{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+object-fit:cover;
+}
+
+/* Header */
+
+.header{
+position:fixed;
+top:0;
+width:100%;
+text-align:center;
+padding:14px;
+font-size:20px;
+font-weight:600;
+letter-spacing:1px;
+background:linear-gradient(180deg,rgba(0,0,0,.6),transparent);
+}
+
+/* Instructions */
+
+.instructions{
+position:fixed;
+bottom:140px;
+width:100%;
+text-align:center;
+font-size:16px;
+background:rgba(0,0,0,.4);
+padding:10px;
+}
+
+/* Bottom Controls */
+
+.controls{
+position:fixed;
+bottom:20px;
+width:100%;
+display:flex;
+justify-content:center;
+align-items:center;
+gap:40px;
+}
+
+/* Buttons */
+
+.icon-btn{
+background:rgba(255,255,255,.15);
+border:none;
+width:55px;
+height:55px;
+border-radius:50%;
+font-size:22px;
+color:white;
+}
+
+.record-btn{
+background:red;
+width:80px;
+height:80px;
+border-radius:50%;
+border:6px solid white;
+}
+
+.pause-btn{
+background:orange;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="header">RackTrack</div>
+
+<video id="video" autoplay playsinline></video>
+
+<div class="instructions" id="instructions">
+Press record to start capturing rack
+</div>
+
+<div class="controls">
+
+<button class="icon-btn" id="flip">🔄</button>
+
+<button class="record-btn" id="record"></button>
+
+<button class="icon-btn pause-btn" id="pause">⏸</button>
+
+</div>
+
+<script>
+
+let video = document.getElementById("video")
+let recordBtn = document.getElementById("record")
+let pauseBtn = document.getElementById("pause")
+let flipBtn = document.getElementById("flip")
+let instructions = document.getElementById("instructions")
+
+let stream
+let recorder
+let chunks=[]
+
+let usingFront=false
+
+async function startCamera(){
+
+stream = await navigator.mediaDevices.getUserMedia({
+video:{facingMode: usingFront ? "user":"environment"},
+audio:false
+})
+
+video.srcObject = stream
+
+recorder = new MediaRecorder(stream)
+
+recorder.ondataavailable=e=>{
+chunks.push(e.data)
+}
+
+recorder.onstop=()=>{
+let blob=new Blob(chunks,{type:'video/webm'})
+let url=URL.createObjectURL(blob)
+let a=document.createElement("a")
+a.href=url
+a.download="racktrack.webm"
+a.click()
+}
+
+}
+
+startCamera()
+
+flipBtn.onclick=async()=>{
+
+usingFront=!usingFront
+
+stream.getTracks().forEach(t=>t.stop())
+
+startCamera()
+
+}
+
+recordBtn.onclick=()=>{
+
+chunks=[]
+recorder.start()
+
+instructions.innerText="First 3 seconds: capture full rack"
+
+setTimeout(()=>{
+instructions.innerText="Move camera LEFT → RIGHT across the first unit"
+},3000)
+
+}
+
+pauseBtn.onclick=()=>{
+
+recorder.stop()
+
+instructions.innerText="Pause recording. Move to next unit start position."
+
+}
+
+</script>
+
+</body>
+</html>
