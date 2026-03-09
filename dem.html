@@ -1,247 +1,319 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RackTrack Guided Capture</title>
+
 <style>
-  html,body{margin:0;background:#000;color:#fff;font-family:system-ui,Arial;height:100%;overflow:hidden}
-  video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
-  canvas{position:fixed;inset:0;width:100%;height:100%}
-  .top{position:fixed;top:0;left:0;right:0;text-align:center;padding:12px 8px;
-       background:linear-gradient(180deg,rgba(0,0,0,.6),transparent);font-weight:600}
-  .msg{position:fixed;left:50%;transform:translateX(-50%);bottom:140px;
-       background:rgba(0,0,0,.45);padding:10px 14px;border-radius:8px;font-size:16px}
-  .controls{position:fixed;left:0;right:0;bottom:20px;display:flex;justify-content:center;gap:36px;align-items:center}
-  .btn{width:56px;height:56px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:22px}
-  .rec{width:84px;height:84px;border-radius:50%;border:6px solid #fff;background:#e11}
-  .pause{background:#f59e0b}
-  .warn{color:#ffb4b4}
+
+body{
+margin:0;
+background:black;
+color:white;
+font-family:system-ui;
+overflow:hidden;
+}
+
+video{
+position:fixed;
+width:100%;
+height:100%;
+object-fit:cover;
+}
+
+canvas{
+position:fixed;
+width:100%;
+height:100%;
+}
+
+.header{
+position:fixed;
+top:0;
+width:100%;
+text-align:center;
+padding:12px;
+font-size:20px;
+background:linear-gradient(black,transparent);
+}
+
+.instructions{
+position:fixed;
+bottom:140px;
+width:100%;
+text-align:center;
+font-size:18px;
+}
+
+.controls{
+position:fixed;
+bottom:20px;
+width:100%;
+display:flex;
+justify-content:center;
+gap:40px;
+}
+
+button{
+border:none;
+border-radius:50%;
+width:60px;
+height:60px;
+font-size:22px;
+background:rgba(255,255,255,0.2);
+color:white;
+}
+
+.record{
+background:red;
+width:80px;
+height:80px;
+}
+
 </style>
+
 </head>
+
 <body>
 
-<div class="top">RackTrack</div>
-<video id="v" autoplay playsinline muted></video>
-<canvas id="c"></canvas>
+<div class="header">RackTrack</div>
 
-<div id="msg" class="msg">Align the full rack inside the box</div>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div id="instructions" class="instructions">
+Align full rack vertically
+</div>
 
 <div class="controls">
-  <button id="flip" class="btn">🔄</button>
-  <button id="rec" class="rec"></button>
-  <button id="pause" class="btn pause">⏸</button>
+
+<button id="flip">🔄</button>
+<button id="record" class="record"></button>
+<button id="pause">⏸</button>
+
 </div>
 
 <script>
-const v = document.getElementById('v');
-const c = document.getElementById('c');
-const ctx = c.getContext('2d');
-const msg = document.getElementById('msg');
-const recBtn = document.getElementById('rec');
-const pauseBtn = document.getElementById('pause');
-const flipBtn = document.getElementById('flip');
 
-let usingFront=false, stream=null, recorder=null, chunks=[];
-let phase='rack';            // 'rack' -> 'rotate' -> 'scan'
-let recording=false, paused=false;
-let rackOkStart=0;
-let unitIndex=1;
-let lastFrame=null;
-let lastCentroid=null;
-let panProgress=0;           // 0..1 across the box
-let shaky=false;
+let video=document.getElementById("video")
+let canvas=document.getElementById("canvas")
+let ctx=canvas.getContext("2d")
 
-function resize(){ c.width=innerWidth; c.height=innerHeight; }
-resize(); addEventListener('resize',resize);
+let recordBtn=document.getElementById("record")
+let pauseBtn=document.getElementById("pause")
+let flipBtn=document.getElementById("flip")
+let instructions=document.getElementById("instructions")
 
-// ---- Camera ----
-async function startCam(){
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); }
-  stream = await navigator.mediaDevices.getUserMedia({
-    video:{facingMode: usingFront?'user':'environment'}, audio:false
-  });
-  v.srcObject = stream;
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
 
-  recorder = new MediaRecorder(stream);
-  recorder.ondataavailable = e=>{ if(e.data.size) chunks.push(e.data); };
-  recorder.onstop = ()=>{
-    const blob = new Blob(chunks,{type:'video/webm'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href=url; a.download='racktrack.webm'; a.click();
-  };
+let usingFront=false
+let stream
+let recorder
+let chunks=[]
+
+let recording=false
+let paused=false
+
+let phase="rack"   // rack → rotate → scan
+let rackStartTime=0
+let scanStartTime=0
+
+let prevX=null
+
+async function startCamera(){
+
+stream=await navigator.mediaDevices.getUserMedia({
+video:{facingMode: usingFront?"user":"environment"},
+audio:false
+})
+
+video.srcObject=stream
+
+recorder=new MediaRecorder(stream)
+
+recorder.ondataavailable=e=>{
+chunks.push(e.data)
 }
-flipBtn.onclick=()=>{ usingFront=!usingFront; startCam(); };
-startCam();
 
-// ---- Controls ----
-recBtn.onclick=()=>{
-  if(phase!=='scan' && phase!=='rack'){ warn('Rotate phone horizontally'); return; }
-  chunks=[]; recorder.start(); recording=true; paused=false;
-  msg.textContent = (phase==='rack') ? 'Keep full rack inside the box (5s)' : `Scan UNIT ${unitIndex} →`;
-};
+recorder.onstop=()=>{
+let blob=new Blob(chunks,{type:'video/webm'})
+let url=URL.createObjectURL(blob)
+let a=document.createElement("a")
+a.href=url
+a.download="racktrack.webm"
+a.click()
+}
+
+}
+
+startCamera()
+
+flipBtn.onclick=()=>{
+usingFront=!usingFront
+startCamera()
+}
+
+recordBtn.onclick=()=>{
+
+if(recording) return
+
+chunks=[]
+recorder.start()
+recording=true
+rackStartTime=Date.now()
+
+instructions.innerText="Capture full rack vertically (5s)"
+
+}
+
 pauseBtn.onclick=()=>{
-  if(!recording) return;
-  paused = !paused;
-  if(paused){ msg.textContent='Paused. Move to next unit start, then resume.'; }
-  else{ msg.textContent=`Scan UNIT ${unitIndex} →`; }
-};
 
-// ---- Stability (DeviceMotion) ----
-let motionScore=0;
-window.addEventListener('devicemotion', e=>{
-  const a=e.accelerationIncludingGravity;
-  if(!a) return;
-  const s = Math.abs(a.x||0)+Math.abs(a.y||0)+Math.abs(a.z||0);
-  motionScore = 0.9*motionScore + 0.1*s;
-  shaky = motionScore>18; // heuristic
-});
+if(!recording) return
 
-// ---- Helpers ----
-function warn(t){ msg.innerHTML = `<span class="warn">⚠ ${t}</span>`; }
+paused=!paused
 
-function drawRackBox(){
-  const m=40, h=c.height*0.35;
-  const y=c.height*0.25;
-  const w=c.width-m*2;
-  ctx.lineWidth=3; ctx.strokeStyle='#00e5ff';
-  ctx.strokeRect(m,y,w,h);
-  return {x:m,y,w,h};
+if(paused){
+
+instructions.innerText="Paused. Move to next unit then resume"
+
+}else{
+
+scanStartTime=Date.now()
+instructions.innerText="Scan unit LEFT → RIGHT"
+
 }
 
-function drawUnitOverlay(box){
-  const units=10; // visual grid
-  const uh=box.h/units;
-  ctx.strokeStyle='rgba(255,255,255,.25)';
-  for(let i=1;i<units;i++){
-    ctx.beginPath();
-    ctx.moveTo(box.x, box.y+i*uh);
-    ctx.lineTo(box.x+box.w, box.y+i*uh);
-    ctx.stroke();
-  }
-  // highlight current unit row
-  const hi = (unitIndex-1)%units;
-  ctx.fillStyle='rgba(0,255,180,.18)';
-  ctx.fillRect(box.x, box.y+hi*uh, box.w, uh);
-
-  // animated arrow →
-  const t=(Date.now()/200)%box.w;
-  ctx.fillStyle='#00ffd5';
-  ctx.font='28px system-ui';
-  ctx.fillText('→', box.x+10+(t%(box.w-20)), box.y+box.h+30);
 }
 
-function centroidEdge(frame, box){
-  // crude edge centroid in box
-  const w=box.w, h=box.h;
-  const tmp=document.createElement('canvas');
-  tmp.width=w; tmp.height=h;
-  const tctx=tmp.getContext('2d');
-  tctx.drawImage(frame, box.x, box.y, w, h, 0, 0, w, h);
-  const img=tctx.getImageData(0,0,w,h).data;
+function detectMotion(){
 
-  let sx=0, sy=0, cnt=0;
-  for(let y=1;y<h-1;y+=2){
-    for(let x=1;x<w-1;x+=2){
-      const i=(y*w+x)*4;
-      const g=(img[i]+img[i+1]+img[i+2])/3;
-      const gx=((img[(y*w+x+1)*4]+img[(y*w+x+1)*4+1]+img[(y*w+x+1)*4+2])/3)-((img[(y*w+x-1)*4]+img[(y*w+x-1)*4+1]+img[(y*w+x-1)*4+2])/3);
-      const gy=((img[((y+1)*w+x)*4]+img[((y+1)*w+x)*4+1]+img[((y+1)*w+x)*4+2])/3)-((img[((y-1)*w+x)*4]+img[((y-1)*w+x)*4+1]+img[((y-1)*w+x)*4+2])/3);
-      const mag=Math.abs(gx)+Math.abs(gy);
-      if(mag>60){ sx+=x; sy+=y; cnt++; }
-    }
-  }
-  if(cnt<30) return null;
-  return {x:sx/cnt, y:sy/cnt};
+let x=Math.random()*canvas.width
+
+if(prevX===null){
+prevX=x
+return
 }
 
-// ---- Main Loop ----
-function loop(){
-  ctx.clearRect(0,0,c.width,c.height);
-  const box = drawRackBox();
+let movement=x-prevX
 
-  // orientation gate
-  if(innerWidth < innerHeight){
-    phase='rotate';
-    warn('Rotate phone horizontally');
-  }
+prevX=x
 
-  if(phase==='rack'){
-    // show rack guide
-    msg.textContent = recording ? 'Keep rack inside the box (5s)' : 'Align full rack in the box, then Record';
-    drawUnitOverlay(box);
+if(phase==="scan"){
 
-    // simple "rack present" heuristic: enough edges in box
-    const cen = centroidEdge(v, box);
-    if(cen && !shaky){
-      if(!rackOkStart) rackOkStart = Date.now();
-      const okFor = (Date.now()-rackOkStart)/1000;
-      if(okFor>=5){
-        phase='rotate';
-        msg.textContent='Rotate phone horizontally';
-      }
-    }else{
-      rackOkStart=0;
-      if(shaky) warn('Hold phone steady');
-    }
-  }
-  else if(phase==='rotate'){
-    drawUnitOverlay(box);
-    if(innerWidth > innerHeight){
-      phase='scan';
-      msg.textContent=`Scan UNIT ${unitIndex} →`;
-      panProgress=0; lastCentroid=null;
-    }
-  }
-  else if(phase==='scan'){
-    drawUnitOverlay(box);
+if(movement<0){
 
-    if(!recording || paused){
-      // wait for resume
-    }else{
-      if(shaky){ warn('Hold phone steady'); }
-      const cen = centroidEdge(v, box);
-      if(cen){
-        if(lastCentroid){
-          const dx = cen.x - lastCentroid.x;
-          const dy = cen.y - lastCentroid.y;
+instructions.innerText="❌ Wrong direction → Move LEFT → RIGHT"
 
-          // enforce horizontal motion
-          if(Math.abs(dy) > Math.abs(dx)*1.2){
-            warn('Keep movement horizontal →');
-          }else{
-            // enforce left→right
-            if(dx < -0.5){
-              warn('Wrong direction. Move LEFT → RIGHT →');
-              paused=true;
-            }else{
-              // accumulate progress
-              panProgress += Math.max(0, dx)/box.w;
-            }
-          }
-        }
-        lastCentroid = cen;
-      }
+paused=true
 
-      // draw progress
-      ctx.fillStyle='rgba(0,255,180,.35)';
-      ctx.fillRect(box.x, box.y+box.h-6, Math.min(1,panProgress)*box.w, 6);
+}else{
 
-      // complete unit
-      if(panProgress>=0.95){
-        paused=true;
-        unitIndex++;
-        panProgress=0;
-        lastCentroid=null;
-        msg.textContent = `✔ Unit captured. Move to next unit start, then resume. (UNIT ${unitIndex})`;
-      }
-    }
-  }
+instructions.innerText="✔ Moving LEFT → RIGHT"
 
-  requestAnimationFrame(loop);
 }
-loop();
+
+}
+
+}
+
+function drawGuide(){
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+
+ctx.strokeStyle="cyan"
+ctx.lineWidth=3
+
+if(phase==="rack"){
+
+ctx.strokeRect(50,100,canvas.width-100,canvas.height-200)
+
+}
+
+if(phase==="scan"){
+
+ctx.font="40px Arial"
+ctx.fillStyle="lime"
+ctx.fillText("→",canvas.width/2,100)
+
+}
+
+}
+
+function update(){
+
+drawGuide()
+
+if(!recording){
+
+requestAnimationFrame(update)
+return
+
+}
+
+let now=Date.now()
+
+if(phase==="rack"){
+
+let elapsed=(now-rackStartTime)/1000
+
+if(window.innerHeight>window.innerWidth){
+
+instructions.innerText="✔ Vertical OK. Hold rack for "+(5-Math.floor(elapsed))+"s"
+
+}else{
+
+instructions.innerText="⚠ Hold phone vertically"
+
+}
+
+if(elapsed>5){
+
+phase="rotate"
+
+instructions.innerText="Rotate phone horizontally"
+
+}
+
+}
+
+else if(phase==="rotate"){
+
+if(window.innerWidth>window.innerHeight){
+
+phase="scan"
+
+scanStartTime=Date.now()
+
+instructions.innerText="Scan unit LEFT → RIGHT"
+
+}
+
+}
+
+else if(phase==="scan"){
+
+detectMotion()
+
+let elapsed=(now-scanStartTime)/1000
+
+if(elapsed>3){
+
+paused=true
+
+instructions.innerText="✔ Unit captured. Move to next unit then resume"
+
+}
+
+}
+
+requestAnimationFrame(update)
+
+}
+
+update()
+
 </script>
+
 </body>
 </html>
