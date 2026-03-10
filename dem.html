@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>RackTrack Capture</title>
 
 <style>
@@ -73,15 +75,8 @@ width:80px;
 height:80px;
 }
 
-.warning{
-color:#ff5050;
-}
-
-.ok{
-color:#00ff88;
-}
-
 </style>
+
 </head>
 
 <body>
@@ -133,7 +128,6 @@ let rotateStart=null
 let scanStart=null
 
 let prevFrame=null
-let prevCenter=null
 
 async function startCamera(){
 
@@ -214,15 +208,18 @@ paused=!paused
 
 if(paused){
 
-instructions.innerText="Move to next unit then resume"
+pauseBtn.innerText="▶"
+instructions.innerText="Move to next unit and press Resume"
 
 }else{
+
+pauseBtn.innerText="⏸"
 
 phase="scan"
 scanStart=Date.now()
 prevFrame=null
 
-instructions.innerText="Move camera LEFT → RIGHT"
+instructions.innerText="Scan next unit LEFT → RIGHT"
 
 }
 
@@ -247,23 +244,23 @@ return true
 
 let frame=ctx.getImageData(0,0,canvas.width,canvas.height)
 
-let movementX=0
+let movement=0
 let samples=0
 
 for(let i=0;i<frame.data.length;i+=40){
 
 let diff=frame.data[i]-prevFrame.data[i]
 
-movementX+=diff
+movement+=diff
 samples++
 
 }
 
-movementX/=samples
+movement/=samples
 
 prevFrame=frame
 
-if(Math.abs(movementX)<0.5){
+if(Math.abs(movement)<0.5){
 
 instructions.innerText="Move camera LEFT → RIGHT"
 scanStart=Date.now()
@@ -271,7 +268,7 @@ return false
 
 }
 
-if(movementX<0){
+if(movement<0){
 
 instructions.innerText="Move camera LEFT → RIGHT"
 scanStart=Date.now()
@@ -299,15 +296,6 @@ canvas.height/2-h/2,
 w,
 h
 )
-
-ctx.font="20px system-ui"
-ctx.fillStyle="white"
-
-if(phase==="scan"){
-
-ctx.fillText("→",canvas.width*0.9,canvas.height/2)
-
-}
 
 }
 
@@ -367,13 +355,13 @@ if(!rotateStart){
 rotateStart=now
 }
 
-if(now-rotateStart>2000){
+if(now-rotateStart>1000){
 
 phase="scan"
 scanStart=now
 prevFrame=null
 
-instructions.innerText="Move camera LEFT → RIGHT"
+instructions.innerText="Start scanning first unit LEFT → RIGHT"
 
 }
 
@@ -381,6 +369,11 @@ instructions.innerText="Move camera LEFT → RIGHT"
 
 // SCAN
 else if(phase==="scan"){
+
+if(paused){
+requestAnimationFrame(update)
+return
+}
 
 if(!isLandscape()){
 
@@ -402,12 +395,16 @@ return
 
 if(now-scanStart<3000){
 
-instructions.innerText="Scanning unit"
+instructions.innerText="Move camera LEFT → RIGHT"
 
 }else{
 
+paused=true
+pauseBtn.innerText="▶"
+
 phase="waitpause"
-instructions.innerText="Pause recording and move to next unit"
+
+instructions.innerText="Pause and move to next unit"
 
 }
 
