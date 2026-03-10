@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RackTrack Guided Capture</title>
+<title>RackTrack Capture</title>
 
 <style>
 
@@ -25,6 +25,7 @@ canvas{
 position:fixed;
 width:100%;
 height:100%;
+pointer-events:none;
 }
 
 .header{
@@ -32,8 +33,9 @@ position:fixed;
 top:0;
 width:100%;
 text-align:center;
-padding:12px;
+padding:14px;
 font-size:20px;
+font-weight:600;
 background:linear-gradient(black,transparent);
 }
 
@@ -43,11 +45,12 @@ bottom:140px;
 width:100%;
 text-align:center;
 font-size:18px;
+padding:10px;
 }
 
 .controls{
 position:fixed;
-bottom:20px;
+bottom:30px;
 width:100%;
 display:flex;
 justify-content:center;
@@ -70,8 +73,15 @@ width:80px;
 height:80px;
 }
 
-</style>
+.warning{
+color:#ff5050;
+}
 
+.ok{
+color:#00ff88;
+}
+
+</style>
 </head>
 
 <body>
@@ -82,13 +92,13 @@ height:80px;
 <canvas id="canvas"></canvas>
 
 <div id="instructions" class="instructions">
-Align full rack vertically
+Press record to start
 </div>
 
 <div class="controls">
 
 <button id="flip">🔄</button>
-<button id="record" class="record"></button>
+<button id="record" class="record">●</button>
 <button id="pause">⏸</button>
 
 </div>
@@ -96,11 +106,17 @@ Align full rack vertically
 <script>
 
 let video=document.getElementById("video")
+let canvas=document.getElementById("canvas")
+let ctx=canvas.getContext("2d")
+
 let instructions=document.getElementById("instructions")
 
 let recordBtn=document.getElementById("record")
 let pauseBtn=document.getElementById("pause")
 let flipBtn=document.getElementById("flip")
+
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
 
 let usingFront=false
 let stream
@@ -110,11 +126,14 @@ let chunks=[]
 let recording=false
 let paused=false
 
-let phase="rack"
+let phase="idle"
 
-let rackStartTime=null
-let rotateStartTime=null
-let scanStartTime=null
+let rackStart=null
+let rotateStart=null
+let scanStart=null
+
+let prevFrame=null
+let prevCenter=null
 
 async function startCamera(){
 
@@ -136,12 +155,15 @@ chunks.push(e.data)
 }
 
 recorder.onstop=()=>{
-let blob=new Blob(chunks,{type:'video/webm'})
+
+let blob=new Blob(chunks,{type:"video/webm"})
 let url=URL.createObjectURL(blob)
+
 let a=document.createElement("a")
 a.href=url
-a.download="racktrack.webm"
+a.download="racktrack_capture.webm"
 a.click()
+
 }
 
 }
@@ -162,7 +184,8 @@ recorder.start()
 
 recording=true
 phase="rack"
-rackStartTime=null
+
+rackStart=null
 
 recordBtn.innerText="■"
 
@@ -171,7 +194,9 @@ instructions.innerText="Hold rack vertically"
 }else{
 
 recorder.stop()
+
 recording=false
+phase="idle"
 
 recordBtn.innerText="●"
 
@@ -183,18 +208,19 @@ instructions.innerText="Recording stopped"
 
 pauseBtn.onclick=()=>{
 
-if(!recording) return
+if(!recording)return
 
 paused=!paused
 
 if(paused){
 
-instructions.innerText="Move to next unit then press Resume"
+instructions.innerText="Move to next unit then resume"
 
 }else{
 
 phase="scan"
-scanStartTime=Date.now()
+scanStart=Date.now()
+prevFrame=null
 
 instructions.innerText="Move camera LEFT → RIGHT"
 
@@ -203,14 +229,91 @@ instructions.innerText="Move camera LEFT → RIGHT"
 }
 
 function isPortrait(){
-return window.innerHeight > window.innerWidth
+return window.innerHeight>window.innerWidth
 }
 
 function isLandscape(){
-return window.innerWidth > window.innerHeight
+return window.innerWidth>window.innerHeight
+}
+
+function detectPan(){
+
+if(!prevFrame){
+
+prevFrame=ctx.getImageData(0,0,canvas.width,canvas.height)
+return true
+
+}
+
+let frame=ctx.getImageData(0,0,canvas.width,canvas.height)
+
+let movementX=0
+let samples=0
+
+for(let i=0;i<frame.data.length;i+=40){
+
+let diff=frame.data[i]-prevFrame.data[i]
+
+movementX+=diff
+samples++
+
+}
+
+movementX/=samples
+
+prevFrame=frame
+
+if(Math.abs(movementX)<0.5){
+
+instructions.innerText="Move camera LEFT → RIGHT"
+scanStart=Date.now()
+return false
+
+}
+
+if(movementX<0){
+
+instructions.innerText="Move camera LEFT → RIGHT"
+scanStart=Date.now()
+return false
+
+}
+
+return true
+
+}
+
+function drawGuide(){
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+
+ctx.strokeStyle="rgba(0,255,150,0.6)"
+ctx.lineWidth=3
+
+let w=canvas.width*0.7
+let h=canvas.height*0.8
+
+ctx.strokeRect(
+canvas.width/2-w/2,
+canvas.height/2-h/2,
+w,
+h
+)
+
+ctx.font="20px system-ui"
+ctx.fillStyle="white"
+
+if(phase==="scan"){
+
+ctx.fillText("→",canvas.width*0.9,canvas.height/2)
+
+}
+
 }
 
 function update(){
+
+drawGuide()
 
 if(!recording){
 requestAnimationFrame(update)
@@ -219,23 +322,23 @@ return
 
 let now=Date.now()
 
-// ---- RACK CAPTURE ----
+// RACK CAPTURE
 if(phase==="rack"){
 
 if(!isPortrait()){
 
-rackStartTime=null
 instructions.innerText="Hold phone vertically"
+rackStart=null
 requestAnimationFrame(update)
 return
 
 }
 
-if(!rackStartTime){
-rackStartTime=now
+if(!rackStart){
+rackStart=now
 }
 
-if(now-rackStartTime<4000){
+if(now-rackStart<4000){
 
 instructions.innerText="Hold rack vertically"
 
@@ -248,43 +351,56 @@ instructions.innerText="Rotate phone horizontally"
 
 }
 
-// ---- ROTATE ----
+// ROTATE
 else if(phase==="rotate"){
 
-if(isLandscape()){
+if(!isLandscape()){
 
-if(!rotateStartTime){
-rotateStartTime=now
+instructions.innerText="Rotate phone horizontally"
+rotateStart=null
+requestAnimationFrame(update)
+return
+
 }
 
-if(now-rotateStartTime>2000){
+if(!rotateStart){
+rotateStart=now
+}
+
+if(now-rotateStart>2000){
 
 phase="scan"
-scanStartTime=now
+scanStart=now
+prevFrame=null
 
 instructions.innerText="Move camera LEFT → RIGHT"
 
 }
 
-}else{
-
-rotateStartTime=null
-
 }
 
-}
-
-// ---- SCAN ----
+// SCAN
 else if(phase==="scan"){
 
-if(paused){
+if(!isLandscape()){
+
+instructions.innerText="Hold phone horizontally"
+scanStart=now
+requestAnimationFrame(update)
+return
+
+}
+
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
+
+let valid=detectPan()
+
+if(!valid){
 requestAnimationFrame(update)
 return
 }
 
-let elapsed=now-scanStartTime
-
-if(elapsed<3000){
+if(now-scanStart<3000){
 
 instructions.innerText="Scanning unit"
 
@@ -297,10 +413,8 @@ instructions.innerText="Pause recording and move to next unit"
 
 }
 
-// ---- WAIT FOR PAUSE ----
+// WAIT FOR PAUSE
 else if(phase==="waitpause"){
-
-// waiting for user pause
 
 }
 
@@ -311,7 +425,6 @@ requestAnimationFrame(update)
 update()
 
 </script>
+
 </body>
 </html>
-
-
