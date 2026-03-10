@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RackTrack Guided Capture</title>
 
 <style>
 
@@ -44,7 +43,6 @@ bottom:140px;
 width:100%;
 text-align:center;
 font-size:18px;
-padding:0 20px;
 }
 
 .controls{
@@ -59,17 +57,17 @@ gap:40px;
 button{
 border:none;
 border-radius:50%;
-width:70px;
-height:70px;
-font-size:20px;
+width:60px;
+height:60px;
+font-size:22px;
 background:rgba(255,255,255,0.2);
 color:white;
 }
 
 .record{
 background:red;
-width:90px;
-height:90px;
+width:80px;
+height:80px;
 }
 
 </style>
@@ -78,15 +76,13 @@ height:90px;
 
 <body>
 
-<div class="header">RackTrack Capture</div>
+<div class="header">RackTrack</div>
 
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
 <div id="instructions" class="instructions">
-
-Press record to start
-
+Align full rack vertically
 </div>
 
 <div class="controls">
@@ -96,15 +92,22 @@ Press record to start
 <button id="pause">⏸</button>
 
 </div>
+
 <script>
 
-const video=document.getElementById("video")
-const instructions=document.getElementById("instructions")
+let video=document.getElementById("video")
+let canvas=document.getElementById("canvas")
+let ctx=canvas.getContext("2d")
 
-const recordBtn=document.getElementById("record")
-const pauseBtn=document.getElementById("pause")
-const flipBtn=document.getElementById("flip")
+let recordBtn=document.getElementById("record")
+let pauseBtn=document.getElementById("pause")
+let flipBtn=document.getElementById("flip")
+let instructions=document.getElementById("instructions")
 
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+
+let usingFront=false
 let stream
 let recorder
 let chunks=[]
@@ -112,30 +115,16 @@ let chunks=[]
 let recording=false
 let paused=false
 
-let state="idle"
+let phase="rack"   // rack → rotate → scan
+let rackStartTime=0
+let scanStartTime=0
 
-let rackTimer=null
-let rotateTimer=null
-let scanTimer=null
-
-let usingFront=false
-
-function isPortrait(){
-return screen.orientation.type.includes("portrait")
-}
-
-function isLandscape(){
-return screen.orientation.type.includes("landscape")
-}
+let prevX=null
 
 async function startCamera(){
 
-if(stream){
-stream.getTracks().forEach(t=>t.stop())
-}
-
 stream=await navigator.mediaDevices.getUserMedia({
-video:{facingMode:usingFront?"user":"environment"},
+video:{facingMode: usingFront?"user":"environment"},
 audio:false
 })
 
@@ -143,57 +132,38 @@ video.srcObject=stream
 
 recorder=new MediaRecorder(stream)
 
-recorder.ondataavailable=e=>chunks.push(e.data)
+recorder.ondataavailable=e=>{
+chunks.push(e.data)
+}
 
 recorder.onstop=()=>{
-
-let blob=new Blob(chunks,{type:"video/webm"})
+let blob=new Blob(chunks,{type:'video/webm'})
 let url=URL.createObjectURL(blob)
-
 let a=document.createElement("a")
 a.href=url
 a.download="racktrack.webm"
 a.click()
-
 }
 
 }
 
 startCamera()
 
-flipBtn.onclick=async()=>{
+flipBtn.onclick=()=>{
 usingFront=!usingFront
-await startCamera()
+startCamera()
 }
 
 recordBtn.onclick=()=>{
 
-if(!recording){
+if(recording) return
 
 chunks=[]
 recorder.start()
-
 recording=true
-state="rack"
+rackStartTime=Date.now()
 
-rackTimer=null
-
-recordBtn.innerText="■"
-
-instructions.innerText="Hold rack vertically"
-
-}else{
-
-recorder.stop()
-
-recording=false
-state="idle"
-
-recordBtn.innerText="●"
-
-instructions.innerText="Recording stopped"
-
-}
+instructions.innerText="Capture full rack vertically (5s)"
 
 }
 
@@ -205,91 +175,112 @@ paused=!paused
 
 if(paused){
 
-state="paused"
-instructions.innerText="Move to next unit then press Resume"
+instructions.innerText="Paused. Move to next unit then resume"
 
 }else{
 
-startScan()
+scanStartTime=Date.now()
+instructions.innerText="Scan unit LEFT → RIGHT"
 
 }
 
 }
 
-function startScan(){
-
-state="scan"
-scanTimer=Date.now()
-
-instructions.innerText="Move camera LEFT → RIGHT"
-
+function isPortrait(){
+	return window.innerHeight > window.innerWidth;
 }
 
 function update(){
+	drawGuide();
+	if(!recording){
+		requestAnimationFrame(update);
+		return;
+	}
+	let now = Date.now();
+	if(phase === "rack"){
+		if(!isPortrait()){
+			rackStartTime = null;
+			instructions.innerText = "Hold phone vertically";
+			return;
+		}
+		if(!rackStartTime){
+			rackStartTime = Date.now();
+		}
+		let elapsed = Date.now() - rackStartTime;
+		if(elapsed < 4000){
+			instructions.innerText = "Hold rack vertically";
+		}else{
+			phase = "rotate";
+			rackStartTime = null;
+			instructions.innerText = "Rotate phone horizontally";
+		}
+	}
+	else if(phase === "rotate"){
+		if(window.innerWidth > window.innerHeight){
+			phase = "scan";
+			scanStartTime = Date.now();
+			instructions.innerText = "Scan unit LEFT → RIGHT";
+		}
+	}
+	else if(phase === "scan"){
+		detectMotion();
+		let elapsed = (now - scanStartTime) / 1000;
+		if(elapsed > 3){
+			paused = true;
+			instructions.innerText = "✔ Unit captured. Move to next unit then resume";
+		}
+	}
+	requestAnimationFrame(update);
+}
+if(phase==="rack"){
 
-if(!recording){
-requestAnimationFrame(update)
-return
+let elapsed=(now-rackStartTime)/1000
+
+if(window.innerHeight>window.innerWidth){
+
+instructions.innerText="✔ Vertical OK. Hold rack for "+(5-Math.floor(elapsed))+"s"
+
+}else{
+
+instructions.innerText="⚠ Hold phone vertically"
+
 }
 
-if(state==="rack"){
+if(elapsed>5){
 
-if(isPortrait()){
+phase="rotate"
 
-if(!rackTimer){
-rackTimer=Date.now()
-}
-
-if(Date.now()-rackTimer>4000){
-
-state="rotate"
 instructions.innerText="Rotate phone horizontally"
 
 }
 
-}else{
+}
 
-rackTimer=null
-instructions.innerText="Hold phone vertically"
+else if(phase==="rotate"){
+
+if(window.innerWidth>window.innerHeight){
+
+phase="scan"
+
+scanStartTime=Date.now()
+
+instructions.innerText="Scan unit LEFT → RIGHT"
 
 }
 
 }
 
-else if(state==="rotate"){
+else if(phase==="scan"){
 
-if(isLandscape()){
+detectMotion()
 
-if(!rotateTimer){
-rotateTimer=Date.now()
-}
+let elapsed=(now-scanStartTime)/1000
 
-if(Date.now()-rotateTimer>2000){
+if(elapsed>3){
 
-startScan()
+paused=true
 
-}
-
-}else{
-
-rotateTimer=null
-
-}
-
-}
-
-else if(state==="scan"){
-
-let t=Date.now()-scanTimer
-
-if(t<3000){
-
-instructions.innerText="Scanning unit"
-
-}else{
-
-state="waitpause"
-instructions.innerText="Pause recording and move to next unit"
+instructions.innerText="✔ Unit captured. Move to next unit then resume"
 
 }
 
@@ -297,14 +288,12 @@ instructions.innerText="Pause recording and move to next unit"
 
 requestAnimationFrame(update)
 
-}
+
 
 update()
 
 </script>
-  
+
 </body>
-
 </html>
-
 
