@@ -96,16 +96,11 @@ Align full rack vertically
 <script>
 
 let video=document.getElementById("video")
-let canvas=document.getElementById("canvas")
-let ctx=canvas.getContext("2d")
+let instructions=document.getElementById("instructions")
 
 let recordBtn=document.getElementById("record")
 let pauseBtn=document.getElementById("pause")
 let flipBtn=document.getElementById("flip")
-let instructions=document.getElementById("instructions")
-
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
 
 let usingFront=false
 let stream
@@ -115,13 +110,17 @@ let chunks=[]
 let recording=false
 let paused=false
 
-let phase="rack"   // rack → rotate → scan
-let rackStartTime=0
-let scanStartTime=0
+let phase="rack"
 
-let prevX=null
+let rackStartTime=null
+let rotateStartTime=null
+let scanStartTime=null
 
 async function startCamera(){
+
+if(stream){
+stream.getTracks().forEach(t=>t.stop())
+}
 
 stream=await navigator.mediaDevices.getUserMedia({
 video:{facingMode: usingFront?"user":"environment"},
@@ -156,14 +155,29 @@ startCamera()
 
 recordBtn.onclick=()=>{
 
-if(recording) return
+if(!recording){
 
 chunks=[]
 recorder.start()
-recording=true
-rackStartTime=Date.now()
 
-instructions.innerText="Capture full rack vertically (5s)"
+recording=true
+phase="rack"
+rackStartTime=null
+
+recordBtn.innerText="■"
+
+instructions.innerText="Hold rack vertically"
+
+}else{
+
+recorder.stop()
+recording=false
+
+recordBtn.innerText="●"
+
+instructions.innerText="Recording stopped"
+
+}
 
 }
 
@@ -175,125 +189,129 @@ paused=!paused
 
 if(paused){
 
-instructions.innerText="Paused. Move to next unit then resume"
+instructions.innerText="Move to next unit then press Resume"
 
 }else{
 
+phase="scan"
 scanStartTime=Date.now()
-instructions.innerText="Scan unit LEFT → RIGHT"
+
+instructions.innerText="Move camera LEFT → RIGHT"
 
 }
 
 }
 
 function isPortrait(){
-	return window.innerHeight > window.innerWidth;
+return window.innerHeight > window.innerWidth
+}
+
+function isLandscape(){
+return window.innerWidth > window.innerHeight
 }
 
 function update(){
-	drawGuide();
-	if(!recording){
-		requestAnimationFrame(update);
-		return;
-	}
-	let now = Date.now();
-	if(phase === "rack"){
-		if(!isPortrait()){
-			rackStartTime = null;
-			instructions.innerText = "Hold phone vertically";
-			return;
-		}
-		if(!rackStartTime){
-			rackStartTime = Date.now();
-		}
-		let elapsed = Date.now() - rackStartTime;
-		if(elapsed < 4000){
-			instructions.innerText = "Hold rack vertically";
-		}else{
-			phase = "rotate";
-			rackStartTime = null;
-			instructions.innerText = "Rotate phone horizontally";
-		}
-	}
-	else if(phase === "rotate"){
-		if(window.innerWidth > window.innerHeight){
-			phase = "scan";
-			scanStartTime = Date.now();
-			instructions.innerText = "Scan unit LEFT → RIGHT";
-		}
-	}
-	else if(phase === "scan"){
-		detectMotion();
-		let elapsed = (now - scanStartTime) / 1000;
-		if(elapsed > 3){
-			paused = true;
-			instructions.innerText = "✔ Unit captured. Move to next unit then resume";
-		}
-	}
-	requestAnimationFrame(update);
+
+if(!recording){
+requestAnimationFrame(update)
+return
 }
+
+let now=Date.now()
+
+// ---- RACK CAPTURE ----
 if(phase==="rack"){
 
-let elapsed=(now-rackStartTime)/1000
+if(!isPortrait()){
 
-if(window.innerHeight>window.innerWidth){
+rackStartTime=null
+instructions.innerText="Hold phone vertically"
+requestAnimationFrame(update)
+return
 
-instructions.innerText="✔ Vertical OK. Hold rack for "+(5-Math.floor(elapsed))+"s"
+}
+
+if(!rackStartTime){
+rackStartTime=now
+}
+
+if(now-rackStartTime<4000){
+
+instructions.innerText="Hold rack vertically"
 
 }else{
 
-instructions.innerText="⚠ Hold phone vertically"
-
-}
-
-if(elapsed>5){
-
 phase="rotate"
-
 instructions.innerText="Rotate phone horizontally"
 
 }
 
 }
 
+// ---- ROTATE ----
 else if(phase==="rotate"){
 
-if(window.innerWidth>window.innerHeight){
+if(isLandscape()){
+
+if(!rotateStartTime){
+rotateStartTime=now
+}
+
+if(now-rotateStartTime>2000){
 
 phase="scan"
+scanStartTime=now
 
-scanStartTime=Date.now()
+instructions.innerText="Move camera LEFT → RIGHT"
 
-instructions.innerText="Scan unit LEFT → RIGHT"
+}
+
+}else{
+
+rotateStartTime=null
 
 }
 
 }
 
+// ---- SCAN ----
 else if(phase==="scan"){
 
-detectMotion()
+if(paused){
+requestAnimationFrame(update)
+return
+}
 
-let elapsed=(now-scanStartTime)/1000
+let elapsed=now-scanStartTime
 
-if(elapsed>3){
+if(elapsed<3000){
 
-paused=true
+instructions.innerText="Scanning unit"
 
-instructions.innerText="✔ Unit captured. Move to next unit then resume"
+}else{
+
+phase="waitpause"
+instructions.innerText="Pause recording and move to next unit"
 
 }
+
+}
+
+// ---- WAIT FOR PAUSE ----
+else if(phase==="waitpause"){
+
+// waiting for user pause
 
 }
 
 requestAnimationFrame(update)
 
-
+}
 
 update()
 
 </script>
-
 </body>
 </html>
+
 
